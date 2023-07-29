@@ -1,0 +1,2 @@
+keyring==24.2.0
+Requests==2.31.0
