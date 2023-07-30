@@ -161,3 +161,4 @@ cython_debug/
 
 # Local Development/Testing files
 firewalls.csv
+.DS_Store
