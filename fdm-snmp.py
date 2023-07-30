@@ -119,7 +119,7 @@ def nbinput(text, options=""):
             print("\nInvalid input")
     return resp
 
-def refreshSNMPconfigs(device):
+def printSNMPconfigs(device):
     device.SNMPconfigs=[]
     url="https://%s/api/fdm/v6/object/snmphosts?limit=25" % device.hostname
     response = device.get(url)
@@ -127,18 +127,16 @@ def refreshSNMPconfigs(device):
         for line in response.json()['items']:
             if line['name'] is not None:
                 device.SNMPconfigs.append(line)
-
-def printSNMPconfigs(device):
-    if len(device.SNMPconfigs) == 0:
-        print("\nNo SNMP Configurations Present")
-        return
-    print("\n>>> SNMP Configurations on " + device.hostname +" >>>")
-    print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
-    line = 0
-    for config in device.SNMPconfigs:
-        line += 1
-        serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
-        print ("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
+        if len(device.SNMPconfigs) == 0:
+            print("\nNo SNMP Configurations Present")
+            return
+        print("\n>>> SNMP Configurations on " + device.hostname +" >>>")
+        print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
+        line = 0
+        for config in device.SNMPconfigs:
+            line += 1
+            serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
+            print ("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
  
 def create_remotehost_obj(device, name, ip):
     url = "https://"+device.hostname+"/api/fdm/latest/object/networks"
@@ -328,7 +326,6 @@ def newSNMPconfig_menu(device):
             return
 
 def deleteSNMPconfig_menu(device):
-    refreshSNMPconfigs(device)
     printSNMPconfigs(device)
     config_count = len(device.SNMPconfigs)
     if config_count == 0 :
@@ -441,7 +438,6 @@ def main():
         keyring.set_password(KEYRING, hostname, password)
 
     while True:
-        refreshSNMPconfigs(device) # Update our list of SNMP Configurations
         printSNMPconfigs(device) # Print the list of SNMP Configurations
         print()
         print(" 1. Add a new SNMP Configuration")
