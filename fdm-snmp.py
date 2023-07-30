@@ -155,14 +155,11 @@ def create_snmpv3user(device, snmpv3_payload):
     response_body = device.post(url, snmpv3_payload)
     return response_body
 
-def get_ipAddress(iface):
-    if iface['ipv4']['ipAddress'] == None or iface['ipv4']['ipAddress']['ipAddress'] == None:
-        return "n/a"
-    else:
-        return iface['ipv4']['ipAddress']['ipAddress']
-
 def print_interface(device, iface):
-    ipAddr = get_ipAddress(iface)
+    if iface['ipv4']['ipAddress'] == None or iface['ipv4']['ipAddress']['ipAddress'] == None:
+        ipAddr = "n/a"
+    else:
+       ipAddr = iface['ipv4']['ipAddress']['ipAddress']
     print ("{:<5} {:<18} {:<20} {:<20} {:<40}".format(device.interface_counter+1, iface['name'], iface['hardwareName'], ipAddr, iface['id']))
 
 def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif is sent, we return a matching interface
