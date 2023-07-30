@@ -47,7 +47,6 @@ class FDM:
             print ("Error generated from auth() function --> "+str(err))
             sys.exit()
 
-
     def get(self, url):
         try:
             response = requests.get(url, headers=self.headers, verify=False)
@@ -98,7 +97,6 @@ def dprint(line):
         print("(d) %s" % line)
 
 def nbinput(text, options=""):
-    # Examples   
     #   choice=nbinput("Choose 1,2,3: ", ['1','2','3'])
     #   password=nbinput("Password: ", True)
     while True:
@@ -110,14 +108,14 @@ def nbinput(text, options=""):
                 print("\nPassword cannot be blank.\n")
             else:
                 resp = input(text)
-                if len(options) > 0:
-                    if resp in options:
+                if len(options) > 0 and resp in options:
+                        dprint("in opt")
                         break
-                elif resp != "":
+                elif resp != "" and len(options) == 0:
                     break
                 else:
                     print("\nInvalid input")
-        except ValueError:
+        except:
             print("\nInvalid input")
     return resp
 
@@ -138,7 +136,7 @@ def printSNMPconfigs(device):
     print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
     line = 0
     for config in device.SNMPconfigs:
-        line = +1
+        line += 1
         serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
         print ("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
  
@@ -330,30 +328,15 @@ def newSNMPconfig_menu(device):
             return
 
 def deleteSNMPconfig_menu(device):
-    while True:
-        refreshSNMPconfigs(device)
-        printSNMPconfigs(device)
-        config_count = len(device.SNMPconfigs)
-        dprint ("config count = %s" % config_count)
-        if config_count == 0 :
-            print("\nNo configurations present to edit...")
-            return
-        while True: 
-            try: 
-                selection = int(input("\nEnter line to delete, or 0 to exit [0-" + str(config_count) + "]: "))
-                if isinstance(selection, int):
-                    break
-            except: 
-                print("\n!! Invalid input")
-        if selection == 0:
-            return
-        else:
-            selection -= 1
-            dprint ("adjusted selection %s" % selection)
-            if selection <= len(device.SNMPconfigs):
-                delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
-            else:
-                print ("\nInvalid selection...\n")
+    refreshSNMPconfigs(device)
+    printSNMPconfigs(device)
+    config_count = len(device.SNMPconfigs)
+    if config_count == 0 :
+        print("\nNo configurations present to edit...")
+        return
+    selection = int(nbinput("\nEnter line to delete, or 0 to exit [0-%s]: " % config_count, [str(x) for x in range(0,config_count+1)]))
+    if selection != 0:
+        delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
 
 def work_from_file(filename): # a fast way to add SNMPv2 to everything
     import csv
