@@ -145,69 +145,65 @@ def print_interface(device, iface):
     ipAddr = get_ipAddress(iface)
     print ("{:<5} {:<18} {:<20} {:<20} {:<40}".format(device.interface_counter+1, iface['name'], iface['hardwareName'], ipAddr, iface['id']))
 
-def enumerate_interfaces (device, nameif=""): # Populates valid interfaces, if nameif is sent, we return a matching interface
+def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif is sent, we return a matching interface
     # This is a list of API URLs for the interface types we want to retrieve, True/False = if they can have subinterfaces
     INT_OPS = [
         ("https://"+device.hostname+"/api/fdm/latest/devices/default/interfaces", True),
         ("https://"+device.hostname+"/api/fdm/latest/devices/default/vlaninterfaces", False),
-        ("https://"+device.hostname+"/api/fdm/latest/devices/default/etherchannelinterfaces", True)
-    ]
+        ("https://"+device.hostname+"/api/fdm/latest/devices/default/etherchannelinterfaces", True)]
+    device.interface_counter = 0
     for url, subint in INT_OPS:
         try:
             responses=[]
             int_url = url + "?limit=25"
-            get_int = device.get(int_url)
-            responses.append(get_int) # ??? WHy do I do this?
-            if get_int.status_code==200:
-                for response in responses:
-                    for interface in response.json()['items']: # There has to be a better way to iterate through this
-                        if interface['name'] is not None and interface['name'] != '':
-                            device.valid_interface.append(interface) # Add this to the list of valid interfaces
-                            if nameif and (interface['name'] == nameif): # If we're searching for a name and we found it
-                                return interface
-                            else:
-                                print_interface(device, device.valid_interface[device.interface_counter])
-                            device.interface_counter+=1
-                        if subint == True: # if subint is True, lets try to enumerate the subinterfaces
-                            sub_responses=[]
-                            int_id = interface['id']
-                            subint_url = url + "/" + int_id + "/subinterfaces?limit=25"
-                            get_subinterfaces = device.get(subint_url)
-                            if get_subinterfaces.status_code==200:
-                                sub_responses.append(get_subinterfaces)
-                                for sub_resp in sub_responses:
-                                    for subint in sub_resp.json()['items']:
-                                        if subint['name'] is not None and subint['name'] !='':
-                                            device.valid_interface.append(subint)
-                                            if nameif and (subint['name'] == nameif):
-                                                return subint
-                                            else:
-                                                print_interface(device, device.valid_interface[device.interface_counter])
-                                            device.interface_counter+=1
-            elif get_int.status_code==404: # remote device may not support some interface types - bugfix thanks to Saurabh Pawar 10-04-2022
+            #get_int = device.get(int_url)
+            response = device.get(int_url)
+            if response.status_code==200:
+                for interface in response.json()['items']: # There has to be a better way to iterate through this
+                    if interface['name'] is not None and interface['name'] != '':
+                        device.valid_interface.append(interface) # Add this to the list of valid interfaces
+                        if nameif and (interface['name'] == nameif): # If we're searching for a name and we found it
+                            print_interface(device, device.valid_interface[device.interface_counter])
+                            return interface
+                        elif not nameif:
+                            print_interface(device, device.valid_interface[device.interface_counter])
+                        device.interface_counter+=1
+                    if subint == True: # if subint is True, lets try to enumerate the subinterfaces
+                        sub_responses=[]
+                        int_id = interface['id']
+                        subint_url = url + "/" + int_id + "/subinterfaces?limit=25"
+                        sub_response = device.get(subint_url)
+                        if sub_response.status_code==200:
+                            for subint in sub_response.json()['items']:
+                                if subint['name'] is not None and subint['name'] !='':
+                                    device.valid_interface.append(subint)
+                                    if nameif and (subint['name'] == nameif):
+                                        print_interface(device, device.valid_interface[device.interface_counter])
+                                        return subint
+                                    elif not nameif:
+                                        print_interface(device, device.valid_interface[device.interface_counter])
+                                    device.interface_counter+=1
+            elif response.status_code==404: # remote device may not support some interface types - bugfix thanks to Saurabh Pawar 10-04-2022
                 continue
             else:
                 print("!! Error: %s" % responses)
         except Exception as err:
             print ("Error in interface selection --> "+str(err))
             sys.exit()
-
+    
 def select_interface(device, nameif=""):
-    device.interface_counter=0
-    my_interface = enumerate_interfaces(device, nameif)
-
-    if nameif:
+    my_interface = find_interfaces(device, nameif) # This will search for a nameif (if specified) or print a list of interfaces
+    if nameif: # if we're searching for a nameif, return that interface
         return my_interface
-
-    while True:
+    while True: # Otherwise, have the user select one
         try:
             interface_selection = int(input("\nSelect the interface facing your SNMP server [1-{:<1}]: ".format(device.interface_counter))) -1 # -1 because that's how they're stored
-            if interface_selection > 0 and interface_selection < device.interface_counter:
+            if (interface_selection > 0) and (interface_selection <= device.interface_counter):
                 return device.valid_interface[interface_selection]
         except ValueError:
             print ("\nInvalid selection...")
 
-def create_snmphost(device, sec_Configuration, host, interface, snmp_hostname):
+def create_snmphost(device, secConfig, host, interface, snmp_hostname):
     url = "https://"+device.hostname+"/api/fdm/latest/object/snmphosts"
     payload={
                 "name": snmp_hostname,
@@ -219,7 +215,7 @@ def create_snmphost(device, sec_Configuration, host, interface, snmp_hostname):
                                     },
                 "pollEnabled": True,
                 "trapEnabled": True,
-                "securityConfiguration": sec_Configuration,
+                "securityConfiguration": secConfig,
                 "interface": {
                                     "version": interface['version'],
                                     "name": interface['name'],
@@ -248,46 +244,15 @@ def delete_SNMP_config(device, networkObject_id, snmpHost_id):
     url="https://"+device.hostname+"/api/fdm/v6/object/networks/"+networkObject_id
     device.delete(url)
 
-def get_security_config(device):
-    sec_Configuration={}
-    while True:
-        snmp_version=int(input("\nSelect SNMP version to configure...\n\n 2. SNMPv2\n 3. SNMPv3\n [2-3]: "))
-        if snmp_version in [2,3]:
-            break
-    if snmp_version==2: #SNMPv2
-        community_str=input('Enter SNMPv2 community string : ')
-        sec_Configuration= {
+def getSNMPv2_config(community_str):
+    secConfig = {
                                 "community": community_str,
                                 "type": "snmpv2csecurityconfiguration"
-                            }
-    elif snmp_version==3: #SNMPv3
-        snmpv3_payload={}
-        snmpv3_payload['type']='snmpuser'
-        snmpv3_payload['name'] = input('Enter SNMPv3 username : ')
-        while True:
-            snmpv3_payload['securityLevel'] = input("Enter Security Level ['AUTH', 'NOAUTH', 'PRIV']: ")
-            if snmpv3_payload['securityLevel'] in ['AUTH','NOAUTH','PRIV']:
-                break
-        if snmpv3_payload['securityLevel'] in ['AUTH','PRIV']:
-            while True:
-                snmpv3_payload['authenticationAlgorithm'] = input("Enter authentication Algorithm ['SHA', 'SHA256']: ")
-                if snmpv3_payload['authenticationAlgorithm'] in ['SHA','SHA256']:
-                    break
-            while True:
-                snmpv3_payload['authenticationPassword']=getpass.getpass("Enter authentication password: ")
-                if not snmpv3_payload['authenticationPassword'] == "":
-                    break
-        if snmpv3_payload['securityLevel'] == "PRIV":
-            while True:
-                snmpv3_payload['encryptionAlgorithm']= input("Enter encryption Algorithm ['AES128', 'AES192', 'AES256', '3DES']: ")
-                if snmpv3_payload['authenticationAlgorithm'] in ['AES128','AES192','AES256','3DES']:
-                    break
-            while True:
-                snmpv3_payload['encryptionPassword']=getpass.getpass("Enter encryption password: ")
-                if not snmpv3_payload['encryptionPassword'] == "":
-                    break
-        user=create_snmpv3user(device, snmpv3_payload) #version, name, id and type
-        sec_Configuration = {
+        }
+    return secConfig
+
+def getSNMPv3_config(user):
+    secConfig = {
                                 "authentication": {
                                                         "version": user['version'],
                                                         "name": user['name'],
@@ -296,23 +261,83 @@ def get_security_config(device):
                                                     },
                                 "type": "snmpv3securityconfiguration"
                             }
-    return sec_Configuration
+    return secConfig
 
-def new_SNMP_config(device):
-    name=input("\nEnter the SNMP Server object name : ")
-    ip= input("Enter the SNMP Server object IP : ")
+def getSNMPv3_payload(username):
+    payload={}
+    payload['type']='snmpuser'
+    payload['name'] = username
+    while True:
+        payload['securityLevel'] = input("Enter Security Level ['AUTH', 'NOAUTH', 'PRIV']: ")
+        if payload['securityLevel'] in ['AUTH','NOAUTH','PRIV']:
+            break
+    if payload['securityLevel'] in ['AUTH','PRIV']:
+        while True:
+            payload['authenticationAlgorithm'] = input("Enter authentication Algorithm ['SHA', 'SHA256']: ")
+            if payload['authenticationAlgorithm'] in ['SHA','SHA256']:
+                break
+        while True:
+            payload['authenticationPassword']=getpass.getpass("Enter authentication password: ")
+            if not payload['authenticationPassword'] == "":
+                break
+        if payload['securityLevel'] == "PRIV":
+            while True:
+                payload['encryptionAlgorithm']= input("Enter encryption Algorithm ['AES128', 'AES192', 'AES256', '3DES']: ")
+                if payload['authenticationAlgorithm'] in ['AES128','AES192','AES256','3DES']:
+                    break
+            while True:
+                payload['encryptionPassword']=getpass.getpass("Enter encryption password: ")
+                if not payload['encryptionPassword'] == "":
+                    break
+    return payload
 
-    dprint("host=create_hostobj(device, %s, %s)" % (name, ip))
-    host=create_hostobj(device, name, ip) #version, name, id and type
-
-    sec_Configuration=get_security_config(device)
-    interface=select_interface(device) #version, name, id and type
-    snmp_hostname=""
+def newSNMPconfig_menu(device):
+    name = ""
+    while not name:
+        name = input("\nEnter the SNMP Server object name : ")
+    ip = ""
+    while not ip:
+        ip = input("Enter the SNMP Server object IP : ")
+    while True:
+        snmp_version=int(input("\nSelect SNMP version to configure...\n\n 2. SNMPv2\n 3. SNMPv3\n [2-3]: "))
+        #snmp_version = 2 # disabling v3 for testing
+        if snmp_version in [2,3]:
+            break
+    if snmp_version == 2: #SNMPv2
+        community_str=input('Enter SNMPv2 community string : ')
+        secConfig=getSNMPv2_config(community_str)
+    elif snmp_version == 3:
+        username=""
+        while not username:
+            username = input("Enter SNMPv username: ")
+        v3payload = getSNMPv3_payload(username)
+    snmp_hostname = ""
     while not snmp_hostname:
         snmp_hostname=input('Enter SNMP host object name : ')
-    create_snmphost(device, sec_Configuration, host, interface, snmp_hostname)
+    interface=select_interface(device) # Find the interface to listen on
+    while True:
+        ready=input("Ready to create objects on %s. Continue (y\\n)" % device.hostname)
+        if isinstance(ready, str):
+            ready=ready.lower()
+        match ready:
+            case 'y': # Will need to figure out what version we're configuring here
+                if snmp_version==3: # v3 config only
+                    dprint ("v3user=create_snmpv3user(device, %s)" % v3payload) 
+                    v3user=create_snmpv3user(device, v3payload) 
+                    dprint ("secConfig=getSNMPv3_config(%s)" % v3user)
+                    secConfig=getSNMPv3_config(v3user)
+                # This is for everyone now... 
+                dprint("host=create_hostobj(device, %s, %s)" % (name, ip))
+                host=create_hostobj(device, name, ip) #version, name, id and type
+                dprint("create_snmphost(device, %s, %s, %s, %s)" % (secConfig, host, interface, snmp_hostname))
+                create_snmphost(device, secConfig, host, interface, snmp_hostname)
+                return
+            case 'n':
+                return
+            case _:
+                input("\nInvalid selection, press enter to continue..")
 
-def editSNMPconfigs(device):
+def deleteSNMPconfig_menu(device):
     while True:
         refreshSNMPconfigs(device)
         printSNMPconfigs(device)
@@ -367,18 +392,18 @@ def work_from_file(filename): # a fast way to add SNMPv2 to everything
         dprint ("host=create_hostobj(device, %s, %s)" % (server_name, server_ip))
         host=create_hostobj(device, server_name, server_ip) #version, name, id and type
 
-        sec_Configuration= {
+        secConfig= {
                                 "community": snmp_string,
                                 "type": "snmpv2csecurityconfiguration"
                             }
 
-        interface = enumerate_interfaces(device, nameif)
+        interface = find_interfaces(device, nameif)
         if not interface['nameif']:
             print("\nUnable to find interface %s on %s\n" % (nameif, hostname))
             continue
 
-        dprint("create_snmphost(device, %s, %s, %s, %s)" % (sec_Configuration, host, interface, host_obj))
-        create_snmphost(device, sec_Configuration, host, interface, host_obj)
+        dprint("create_snmphost(device, %s, %s, %s, %s)" % (secConfig, host, interface, host_obj))
+        create_snmphost(device, secConfig, host, interface, host_obj)
 
 
 ###################################################################################################################
@@ -454,9 +479,10 @@ def main():
         choice = input("\n>Enter your choice [0-2]: ")
         match choice:
             case '1':
-                new_SNMP_config(device)
+                newSNMPconfig_menu(device)
+                #new_SNMP_config(device)
             case '2':
-                editSNMPconfigs(device)
+                deleteSNMPconfig_menu(device)
             case '0':
                 sys.exit("\nExiting...")
             case _:
