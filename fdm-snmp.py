@@ -97,6 +97,30 @@ def dprint(line):
     if DEBUG:
         print("(d) %s" % line)
 
+def nbinput(text, options=""):
+    # Examples   
+    #   choice=nbinput("Choose 1,2,3: ", ['1','2','3'])
+    #   password=nbinput("Password: ", True)
+    while True:
+        try:
+            if options == True:
+                resp = getpass.getpass(text)
+                if resp != "": 
+                    break
+                print("\nPassword cannot be blank.\n")
+            else:
+                resp = input(text)
+                if len(options) > 0:
+                    if resp in options:
+                        break
+                elif resp != "":
+                    break
+                else:
+                    print("\nInvalid input")
+        except ValueError:
+            print("\nInvalid input")
+    return resp
+
 def refreshSNMPconfigs(device):
     device.SNMPconfigs=[]
     url="https://%s/api/fdm/v6/object/snmphosts?limit=25" % device.hostname
@@ -118,7 +142,7 @@ def printSNMPconfigs(device):
         serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
         print ("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
  
-def create_hostobj(device, name, ip):
+def create_remotehost_obj(device, name, ip):
     url = "https://"+device.hostname+"/api/fdm/latest/object/networks"
     payload={ "name": name,
               "description": "SNMP Server Host",
@@ -195,18 +219,14 @@ def select_interface(device, nameif=""):
     my_interface = find_interfaces(device, nameif) # This will search for a nameif (if specified) or print a list of interfaces
     if nameif: # if we're searching for a nameif, return that interface
         return my_interface
-    while True: # Otherwise, have the user select one
-        try:
-            interface_selection = int(input("\nSelect the interface facing your SNMP server [1-{:<1}]: ".format(device.interface_counter))) -1 # -1 because that's how they're stored
-            if (interface_selection > 0) and (interface_selection <= device.interface_counter):
-                return device.valid_interface[interface_selection]
-        except ValueError:
-            print ("\nInvalid selection...")
+    num = int(nbinput("\nSelect the interface facing your SNMP server [1-{:<1}]: ".format(device.interface_counter), [str(x) for x in range(1,device.interface_counter+1)]))
+    #num -= 1 # -1 because 0 counting
+    return device.valid_interface[num-1]
 
-def create_snmphost(device, secConfig, host, interface, snmp_hostname):
+def create_snmpserver(device, secConfig, host, interface, server_name):
     url = "https://"+device.hostname+"/api/fdm/latest/object/snmphosts"
     payload={
-                "name": snmp_hostname,
+                "name": server_name,
                 "managerAddress": {
                                         "version": host['version'],
                                         "name": host['name'],
@@ -267,75 +287,47 @@ def getSNMPv3_payload(username):
     payload={}
     payload['type']='snmpuser'
     payload['name'] = username
-    while True:
-        payload['securityLevel'] = input("Enter Security Level ['AUTH', 'NOAUTH', 'PRIV']: ")
-        if payload['securityLevel'] in ['AUTH','NOAUTH','PRIV']:
-            break
+    payload['securityLevel'] = nbinput("Enter Security Level ['AUTH', 'NOAUTH', 'PRIV']: ", ['AUTH', 'NOAUTH', 'PRIV'])
     if payload['securityLevel'] in ['AUTH','PRIV']:
-        while True:
-            payload['authenticationAlgorithm'] = input("Enter authentication Algorithm ['SHA', 'SHA256']: ")
-            if payload['authenticationAlgorithm'] in ['SHA','SHA256']:
-                break
-        while True:
-            payload['authenticationPassword']=getpass.getpass("Enter authentication password: ")
-            if not payload['authenticationPassword'] == "":
-                break
+        payload['authenticationAlgorithm'] = nbinput("Enter authentication Algorithm ['SHA', 'SHA256']: ", ['SHA','SHA256'])
+        payload['authenticationPassword'] = nbinput("Enter authentication password: ", True)
         if payload['securityLevel'] == "PRIV":
-            while True:
-                payload['encryptionAlgorithm']= input("Enter encryption Algorithm ['AES128', 'AES192', 'AES256', '3DES']: ")
-                if payload['authenticationAlgorithm'] in ['AES128','AES192','AES256','3DES']:
-                    break
-            while True:
-                payload['encryptionPassword']=getpass.getpass("Enter encryption password: ")
-                if not payload['encryptionPassword'] == "":
-                    break
+            payload['encryptionAlgorithm'] = nbinput("Enter encryption Algorithm ['AES128', 'AES192', 'AES256', '3DES']: ", ['AES128','AES192','AES256','3DES'])
+            payload['encryptionPassword'] = nbinput("Enter encryption password: ", True)
     return payload
 
 def newSNMPconfig_menu(device):
-    name = ""
-    while not name:
-        name = input("\nEnter the SNMP Server object name : ")
-    ip = ""
-    while not ip:
-        ip = input("Enter the SNMP Server object IP : ")
-    while True:
-        snmp_version=int(input("\nSelect SNMP version to configure...\n\n 2. SNMPv2\n 3. SNMPv3\n [2-3]: "))
-        #snmp_version = 2 # disabling v3 for testing
-        if snmp_version in [2,3]:
-            break
+    snmp_version = int(nbinput("\nSelect SNMP version to configure...\n\n 2. SNMPv2\n 3. SNMPv3\n [2-3]: ", ['2','3']))
+    #snmp_version=2
+    remote_name = nbinput("\nEnter the object name for the remote SNMP Server: ")
+    remote_ip = nbinput("Enter the IP for the remote SNMP Server: ")
     if snmp_version == 2: #SNMPv2
-        community_str=input('Enter SNMPv2 community string : ')
-        secConfig=getSNMPv2_config(community_str)
+        community_str = nbinput("Enter the SNMPv2 community string: ")
+        secConfig = getSNMPv2_config(community_str)
     elif snmp_version == 3:
-        username=""
-        while not username:
-            username = input("Enter SNMPv username: ")
+        username = nbinput("Enter the SNMPv3 username: ")
         v3payload = getSNMPv3_payload(username)
-    snmp_hostname = ""
-    while not snmp_hostname:
-        snmp_hostname=input('Enter SNMP host object name : ')
+    snmp_servername = nbinput('Enter Local SNMP Server object name: ')
     interface=select_interface(device) # Find the interface to listen on
-    while True:
-        ready=input("Ready to create objects on %s. Continue (y\\n)" % device.hostname)
-        if isinstance(ready, str):
-            ready=ready.lower()
-        match ready:
-            case 'y': # Will need to figure out what version we're configuring here
-                if snmp_version==3: # v3 config only
-                    dprint ("v3user=create_snmpv3user(device, %s)" % v3payload) 
-                    v3user=create_snmpv3user(device, v3payload) 
-                    dprint ("secConfig=getSNMPv3_config(%s)" % v3user)
-                    secConfig=getSNMPv3_config(v3user)
-                # This is for everyone now... 
-                dprint("host=create_hostobj(device, %s, %s)" % (name, ip))
-                host=create_hostobj(device, name, ip) #version, name, id and type
-                dprint("create_snmphost(device, %s, %s, %s, %s)" % (secConfig, host, interface, snmp_hostname))
-                create_snmphost(device, secConfig, host, interface, snmp_hostname)
-                return
-            case 'n':
-                return
-            case _:
-                input("\nInvalid selection, press enter to continue..")
+    ready = nbinput("Ready to create objects on %s. Continue (y\\n): " % device.hostname, ['y', 'n', 'Y', 'N'])
+    if isinstance(ready, str):
+        ready=ready.lower()
+    match ready:
+        case 'y': # Will need to figure out what version we're configuring here
+            if snmp_version==3: # v3 config only
+                dprint ("v3user=create_snmpv3user(device, %s)" % v3payload) 
+                v3user=create_snmpv3user(device, v3payload) 
+                dprint ("secConfig=getSNMPv3_config(%s)" % v3user)
+                secConfig=getSNMPv3_config(v3user)
+            # This is for everyone now... 
+            dprint("hostobj = create_remotehost_obj(device, %s, %s)" % (remote_name, remote_ip))
+            remoteobj = create_remotehost_obj(device, remote_name, remote_ip) #version, name, id and type
+            dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remoteobj, interface, snmp_servername))
+            create_snmpserver(device, secConfig, remoteobj, interface, snmp_servername)
+            print("\n\n Configuration Complete - Please visit FDM and Commit these changes!")
+            return
+        case 'n':
+            return
 
 def deleteSNMPconfig_menu(device):
     while True:
@@ -365,7 +357,7 @@ def deleteSNMPconfig_menu(device):
 
 def work_from_file(filename): # a fast way to add SNMPv2 to everything
     import csv
-    format = ['HOSTNAME', 'USERNAME', 'PASSWORD' 'SERVER_NAME', 'SERVER_IP', 'NAMEIF', 'HOST_OBJ', 'SNMP_STRING']
+    format = ['HOSTNAME', 'USERNAME', 'PASSWORD' 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']
     with open(filename, newline='', fieldnames=format) as file:
         csv_file = csv.DictReader(file)
 
@@ -373,15 +365,15 @@ def work_from_file(filename): # a fast way to add SNMPv2 to everything
         hostname=line['HOSTNAME']
         username=line['USERNAME']
         password=line['PASSWORD']
-        server_name=line['SERVER_NAME']
-        server_ip=line['SERVER_IP']
+        remoteserver_name=line['REMOTESERVER_NAME']
+        remoteserver_ip=line['REMOTESERVER_IP']
         nameif=line['NAMEIF']
-        host_obj=line['HOST_OBJ']
+        localserver_name=line['LOCALSERVER_NAME']
         snmp_string=line['SNMP_STRING']
 
-        dprint("['HOSTNAME', 'USERNAME', 'PASSWORD' 'SERVER_NAME', 'SERVER_IP', 'NAMEIF', 'HOST_OBJ', 'SNMP_STRING']")
+        dprint("['HOSTNAME', 'USERNAME', 'PASSWORD' 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']")
         dprint(format)
-        dprint("%s, %s, %s, %s, %s, %s, %s, %s" % (hostname, username, password, server_name, server_ip, nameif, host_obj, snmp_string))
+        dprint("%s, %s, %s, %s, %s, %s, %s, %s" % (hostname, username, password, remoteserver_name, remoteserver_ip, nameif, localserver_name, snmp_string))
 
         print("Logging into %s" % hostname)
         device=FDM(hostname)
@@ -389,8 +381,8 @@ def work_from_file(filename): # a fast way to add SNMPv2 to everything
             print ("\nLogin error %s@%s\n" % (username, hostname))
             continue
 
-        dprint ("host=create_hostobj(device, %s, %s)" % (server_name, server_ip))
-        host=create_hostobj(device, server_name, server_ip) #version, name, id and type
+        dprint ("host=create_remotehost_obj(device, %s, %s)" % (remoteserver_name, remoteserver_ip))
+        remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
 
         secConfig= {
                                 "community": snmp_string,
@@ -402,8 +394,8 @@ def work_from_file(filename): # a fast way to add SNMPv2 to everything
             print("\nUnable to find interface %s on %s\n" % (nameif, hostname))
             continue
 
-        dprint("create_snmphost(device, %s, %s, %s, %s)" % (secConfig, host, interface, host_obj))
-        create_snmphost(device, secConfig, host, interface, host_obj)
+        dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remotehost_obj, interface, localserver_name))
+        create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
 
 
 ###################################################################################################################
@@ -445,26 +437,22 @@ def main():
     if args.host:
         hostname = args.host[0]
     while not hostname:
-        hostname = input("Enter the FDM Management IP/Hostname: ")
+        hostname = nbinput("FDM Management IP or Hostname: ")
     if "@" in hostname: # for those that username@hostname
         username=args.host.split('@')[0]
         hostname=args.host.split('@')[1]
-    while not username: # Should literlaly never need this
-        username = getpass.getuser("Username: ")
+    while not username:
+        username = nbinput("Username: ")
     if (args.keyring or AUTO_KEYCHAIN) and not args.change_password:
         print("Pulling password from local keyring.")
         password=keyring.get_password(KEYRING, hostname)
-        dprint ("password=keyring.get_password(%s, %s) == %s" % (KEYRING, hostname, password))
         if not password:
             print("Password for %s not found in keyring\n" % hostname)
-    while not password:
-        password = getpass.getpass('Password: ')
+            password = nbinput('Password: ', True)
 
     device=FDM(hostname)
     while not device.do_auth(username, password):
-        password  = ""
-        while not password: 
-            password = getpass.getpass('Password: ')
+        password = nbinput('Password: ', True)
 
     if SAVE_CREDS_TO_KEYRING:
         keyring.set_password(KEYRING, hostname, password)
@@ -476,7 +464,9 @@ def main():
         print(" 1. Add a new SNMP Configuration")
         print(" 2. Delete a current SNMP Configuration")
         print(" 0. Exit")
-        choice = input("\n>Enter your choice [0-2]: ")
+        print()
+        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2'])
+
         match choice:
             case '1':
                 newSNMPconfig_menu(device)
@@ -485,8 +475,6 @@ def main():
                 deleteSNMPconfig_menu(device)
             case '0':
                 sys.exit("\nExiting...")
-            case _:
-                input("\nInvalid selection, press enter to continue..")
 
 ###################################################################################################################
 ###################################################################################################################
