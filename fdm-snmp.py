@@ -323,57 +323,57 @@ def newSNMPconfig_menu(device):
             return
 
 def deleteSNMPconfig_menu(device):
-    printSNMPconfigs(device)
-    config_count = len(device.SNMPconfigs)
-    if config_count == 0 :
-        print("\nNo configurations present to edit...")
-        return
-    selection = int(nbinput("\nEnter line to delete, or 0 to exit [0-%s]: " % config_count, [str(x) for x in range(0,config_count+1)]))
-    if selection != 0:
-        delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
+    while True:
+        printSNMPconfigs(device)
+        config_count = len(device.SNMPconfigs)
+        if config_count == 0 :
+            print("\nNo configurations present to edit...")
+            return
+        selection = int(nbinput("\nEnter line to delete, or 0 to exit [0-%s]: " % config_count, [str(x) for x in range(0,config_count+1)]))
+        if selection != 0:
+            delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
+        else:
+            return
 
-def work_from_file(filename): # a fast way to add SNMPv2 to everything
+def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast way to add SNMPv2 to all the things...
     import csv
-    format = ['HOSTNAME', 'USERNAME', 'PASSWORD' 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']
-    with open(filename, newline='', fieldnames=format) as file:
-        csv_file = csv.DictReader(file)
+    format = ['HOSTNAME', 'USERNAME', 'PASSWORD', 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']
+    with open(filename, newline='') as file:
+        csv_file = csv.DictReader(file, fieldnames=format)
+        for line in csv_file:
+            hostname=line['HOSTNAME'].strip()
+            username=line['USERNAME'].strip()
+            password=line['PASSWORD'].strip()
+            remoteserver_name=line['REMOTESERVER_NAME'].strip()
+            remoteserver_ip=line['REMOTESERVER_IP'].strip()
+            nameif=line['NAMEIF'].strip()
+            localserver_name=line['LOCALSERVER_NAME'].strip()
+            snmp_string=line['SNMP_STRING'].strip()
 
-    for line in csv_file:
-        hostname=line['HOSTNAME']
-        username=line['USERNAME']
-        password=line['PASSWORD']
-        remoteserver_name=line['REMOTESERVER_NAME']
-        remoteserver_ip=line['REMOTESERVER_IP']
-        nameif=line['NAMEIF']
-        localserver_name=line['LOCALSERVER_NAME']
-        snmp_string=line['SNMP_STRING']
+            dprint(format)
+            dprint("%s, %s, ##########, %s, %s, %s, %s, %s" % (hostname, username, remoteserver_name, remoteserver_ip, nameif, localserver_name, snmp_string))
+            print("Logging into %s" % hostname)
+            device=FDM(hostname)
 
-        dprint("['HOSTNAME', 'USERNAME', 'PASSWORD' 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']")
-        dprint(format)
-        dprint("%s, %s, %s, %s, %s, %s, %s, %s" % (hostname, username, password, remoteserver_name, remoteserver_ip, nameif, localserver_name, snmp_string))
+            if not device.do_auth(username, password):
+                print ("\nLogin error %s@%s\n" % (username, hostname))
+                continue
 
-        print("Logging into %s" % hostname)
-        device=FDM(hostname)
-        if not device.do_auth(username, password):
-            print ("\nLogin error %s@%s\n" % (username, hostname))
-            continue
+            if SAVE_CREDS_TO_KEYRING:
+                keyring.set_password(KEYRING, hostname, password)
 
-        dprint ("host=create_remotehost_obj(device, %s, %s)" % (remoteserver_name, remoteserver_ip))
-        remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
+            dprint ("host=create_remotehost_obj(device, %s, %s)" % (remoteserver_name, remoteserver_ip))
+            remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
 
-        secConfig= {
-                                "community": snmp_string,
-                                "type": "snmpv2csecurityconfiguration"
-                            }
+            interface = find_interfaces(device, nameif)
+            if not interface['name']:
+                print("\nUnable to find interface %s on %s\n" % (nameif, hostname))
+                continue
 
-        interface = find_interfaces(device, nameif)
-        if not interface['nameif']:
-            print("\nUnable to find interface %s on %s\n" % (nameif, hostname))
-            continue
-
-        dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remotehost_obj, interface, localserver_name))
-        create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
-
+            secConfig = getSNMPv2_config(snmp_string) 
+            dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remotehost_obj, interface, localserver_name))
+            create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
+    sys.exit("\nComplete - Exiting")
 
 ###################################################################################################################
 ###################################################################################################################
@@ -401,6 +401,7 @@ def main():
     parser.add_argument("-k", "--keyring", dest="keyring", help="Pull password from local keyring (by hostname)", action="store_true")
     parser.add_argument("-p", "--password", dest="change_password", help="Change keyring password via interactive login", action="store_true")
     parser.add_argument("-d", dest="debug", help=argparse.SUPPRESS, action="store_true")
+    parser.add_argument("-f", dest="file", help=argparse.SUPPRESS, default="")
     args = parser.parse_args()
 
     username=args.user
@@ -411,6 +412,8 @@ def main():
         global DEBUG 
         DEBUG = True
         print(">Debug ON")
+    if args.file:
+        work_from_file(args.file, KEYRING, SAVE_CREDS_TO_KEYRING)
     if args.host:
         hostname = args.host[0]
     while not hostname:
@@ -426,6 +429,8 @@ def main():
         if not password:
             print("Password for %s not found in keyring\n" % hostname)
             password = nbinput('Password: ', True)
+    while not password:
+        password = nbinput('Password: ', True)
 
     device=FDM(hostname)
     while not device.do_auth(username, password):
