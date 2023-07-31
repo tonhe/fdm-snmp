@@ -1,4 +1,4 @@
-#!/usr/local/bin/python3
+#!/usr/bin/env python3
 import sys
 import os
 import json
@@ -13,38 +13,40 @@ DEBUG = False
 class FDM:
     def __init__(self, hostname):
         self.hostname = hostname
+        self.access_token=""
         self.headers=""
         self.interface_counter = 0
         self.valid_interface = []
         self.SNMPconfigs = []
 
     def do_auth(self, username, password):
-        url = "https://"+self.hostname+"/api/fdm/latest/fdm/token"
-        payload = ('{ "grant_type": "password","username": "%s", "password": "%s" }' % (username, password))
+        url = f"https://{self.hostname}/api/fdm/latest/fdm/token"
+        payload = f'{{ "grant_type": "password","username": "{username}", "password": "{password}" }}'
         self.headers = {
                                 'Content-Type': 'application/json',
                                 'Accept': 'application/json'
                         }
         response=None
         try:
-            response = requests.post(url, headers=self.headers, data = payload, verify=False)
+            response = requests.post(url, headers=self.headers, data=payload, verify=False)
             auth_body=response.json()
             if response.status_code==500:
-                print ("\n!! Error - Internal Server Error\n")
+                print("\n!! Error - Internal Server Error\n")
                 return False
             auth_token = auth_body.get('access_token')
-            if auth_token == None: 
+            if auth_token == None:
                 print("Invalid Password\n")
                 return False
             elif response.status_code==200:
                 print('Successfully Authenticated')
-                self.headers = { 'Authorization': 'Bearer '+auth_token,
+                self.access_token = auth_token
+                self.headers = { 'Authorization': f'Bearer {auth_token}',
                             'Content-Type': 'application/json',
                             'Accept': 'application/json'
                             }
                 return True
         except Exception as err:
-            print ("Error generated from auth() function --> "+str(err))
+            print(f"!! Error in do_auth(): {err}")
             sys.exit()
 
     def get(self, url):
@@ -53,7 +55,8 @@ class FDM:
             if response.status_code==200:
                 return response
         except Exception as e:
-            print ("!! ERROR API Get - "+str(e))
+            print(f"!! ERROR API Get - {e}")
+            self.logoout()
             sys.exit()
         return
 
@@ -66,7 +69,8 @@ class FDM:
             else:
                 print(response_body)
         except Exception as e:
-            print ("!! ERROR API Post - "+str(e))
+            print(f"!! ERROR API Post - {e}")
+            self.logoout()
             sys.exit()
         return
 
@@ -74,27 +78,33 @@ class FDM:
         try:
             response = requests.delete(url, headers=self.headers, verify=False)
             if response.status_code != 204:
-                print (response.json)
+                print(response.json)
         except Exception as e:
-            print ("!! ERROR in API Delete - "+str(e))
+            print(f"!! ERROR in API Delete - {e}")
+            self.logout()
             sys.exit()
         return
 
-    def close(device): # NEEDS FINISHED
-    #https://developer.cisco.com/docs/ftd-api-reference/latest/#!authenticating-your-rest-api-client-using-oauth/refreshing-an-access-token
-        header={
-            "grant_type": "revoke_token",
-            "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE1MDI5MDQzMjQsInN1YiI6ImFkbWluIiwianRpIjoiZTMzNGIxOWYtODJhNy0xMWU3LWE4MWMtNGQ3NzY2ZTExMzVkIiwibmJmIjoxNTAyOTA0MzI0LCJleHAiOjE1MDI5MDYxMjQsInJlZnJlc2hUb2tlbkV4cGlyZXNBdCI6MTUwMjkwNjcyNDExMiwidG9rZW5UeXBlIjoiSldUX0FjY2VzcyIsIm9yaWdpbiI6InBhc3N3b3JkIn0.OVZBT9yVZc4zxZfZiiLH4SZcFclaHyCPbZJC_Gyd5FE",
-            "custom_token_subject_to_revoke": "api-client"
-        }
-        return
+    def logout(self): # Revoke our own access token
+        headers = { 'Content-Type': 'application/json',
+                    'Accept': 'application/json' }
+        payload = f'{{ "grant_type": "revoke_token","access_token": "{self.access_token}","token_to_revoke": "{self.access_token}"}}'
+        url = f"https://{self.hostname}/api/fdm/v6/fdm/token"
+        try:
+            dprint(f"response = requests.post({url}, headers={headers}, data={payload}, verify=False)")
+            response = requests.post(url, headers=headers, data=payload, verify=False)
+            dprint(f"status code {response.status_code}")
+            if response.status_code == 200: 
+                print(f"\nLogged out of {self.hostname}.")
+        except Exception as e:
+            print(f"!! Logout Error - {e}")
 
 ###################################################################################################
 ###################################################################################################
 
 def dprint(line):
     if DEBUG:
-        print("(d) %s" % line)
+        print(f"(d) {line}")
 
 def nbinput(text, options=""):
     #   choice=nbinput("Choose 1,2,3: ", ['1','2','3'])
@@ -103,13 +113,12 @@ def nbinput(text, options=""):
         try:
             if options == True:
                 resp = getpass.getpass(text)
-                if resp != "": 
+                if resp != "":
                     break
                 print("\nPassword cannot be blank.\n")
             else:
                 resp = input(text)
                 if len(options) > 0 and resp in options:
-                        dprint("in opt")
                         break
                 elif resp != "" and len(options) == 0:
                     break
@@ -121,7 +130,7 @@ def nbinput(text, options=""):
 
 def printSNMPconfigs(device):
     device.SNMPconfigs=[]
-    url="https://%s/api/fdm/v6/object/snmphosts?limit=25" % device.hostname
+    url = f"https://{device.hostname}/api/fdm/v6/object/snmphosts?limit=25"
     response = device.get(url)
     if response.status_code==200:
         for line in response.json()['items']:
@@ -130,16 +139,18 @@ def printSNMPconfigs(device):
         if len(device.SNMPconfigs) == 0:
             print("\nNo SNMP Configurations Present")
             return
-        print("\n>>> SNMP Configurations on " + device.hostname +" >>>")
-        print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
+        print(f"\n>>> SNMP Configurations on {device.hostname} >>>")
+        #print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
+        print(f"{'#':<5} {'snmpHost':<20} {'nameif':<10} {'interface':<15} {'networkObject':<20} {'ipAddress':<12}")
         line = 0
         for config in device.SNMPconfigs:
             line += 1
             serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
-            print ("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
+            #print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
+            print(f"{line:<5} {config['name']:<20} {config['interface']['name']:<10} {config['interface']['hardwareName']:<15} {config['managerAddress']['name']:<20} {serverIP:<12}")
  
 def create_remotehost_obj(device, name, ip):
-    url = "https://"+device.hostname+"/api/fdm/latest/object/networks"
+    url = f"https://{device.hostname}/api/fdm/latest/object/networks"
     payload={ "name": name,
               "description": "SNMP Server Host",
               "subType": "HOST",
@@ -151,7 +162,7 @@ def create_remotehost_obj(device, name, ip):
     return response_body
 
 def create_snmpv3user(device, snmpv3_payload):
-    url = "https://"+device.hostname+"/api/fdm/latest/object/snmpusers"
+    url = f"https://{device.hostname}/api/fdm/latest/object/snmpusers"
     response_body = device.post(url, snmpv3_payload)
     return response_body
 
@@ -160,27 +171,25 @@ def print_interface(device, iface):
         ipAddr = "n/a"
     else:
        ipAddr = iface['ipv4']['ipAddress']['ipAddress']
-    print ("{:<5} {:<18} {:<20} {:<20} {:<40}".format(device.interface_counter+1, iface['name'], iface['hardwareName'], ipAddr, iface['id']))
+    #print("{:<5} {:<18} {:<20} {:<20} {:<40}".format(device.interface_counter+1, iface['name'], iface['hardwareName'], ipAddr, iface['id']))
+    print(f"{device.interface_counter+1:<5} {iface['name']:<18} {iface['hardwareName']:<20} {ipAddr:<20} {iface['id']:<40}")
 
 def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif is sent, we return a matching interface
     # This is a list of API URLs for the interface types we want to retrieve, True/False = if they can have subinterfaces
     INT_OPS = [
-        ("https://"+device.hostname+"/api/fdm/latest/devices/default/interfaces", True),
-        ("https://"+device.hostname+"/api/fdm/latest/devices/default/vlaninterfaces", False),
-        ("https://"+device.hostname+"/api/fdm/latest/devices/default/etherchannelinterfaces", True)]
+        (f"https://{device.hostname}/api/fdm/latest/devices/default/interfaces", True),
+        (f"https://{device.hostname}/api/fdm/latest/devices/default/vlaninterfaces", False),
+        (f"https://{device.hostname}/api/fdm/latest/devices/default/etherchannelinterfaces", True)]
     device.interface_counter = 0
     for url, subint in INT_OPS:
         try:
-            responses=[]
-            int_url = url + "?limit=25"
-            #get_int = device.get(int_url)
+            int_url = f"{url}?limit=25"
             response = device.get(int_url)
             if response.status_code==200:
                 for interface in response.json()['items']: # There has to be a better way to iterate through this
                     if interface['name'] is not None and interface['name'] != '':
                         device.valid_interface.append(interface) # Add this to the list of valid interfaces
                         if nameif and (interface['name'] == nameif): # If we're searching for a name and we found it
-                            print_interface(device, device.valid_interface[device.interface_counter])
                             return interface
                         elif not nameif:
                             print_interface(device, device.valid_interface[device.interface_counter])
@@ -188,14 +197,13 @@ def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif
                     if subint == True: # if subint is True, lets try to enumerate the subinterfaces
                         sub_responses=[]
                         int_id = interface['id']
-                        subint_url = url + "/" + int_id + "/subinterfaces?limit=25"
+                        subint_url = f"{url}/{int_id}/subinterfaces?limit=25"
                         sub_response = device.get(subint_url)
                         if sub_response.status_code==200:
                             for subint in sub_response.json()['items']:
                                 if subint['name'] is not None and subint['name'] !='':
                                     device.valid_interface.append(subint)
                                     if nameif and (subint['name'] == nameif):
-                                        print_interface(device, device.valid_interface[device.interface_counter])
                                         return subint
                                     elif not nameif:
                                         print_interface(device, device.valid_interface[device.interface_counter])
@@ -203,21 +211,21 @@ def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif
             elif response.status_code==404: # remote device may not support some interface types - bugfix thanks to Saurabh Pawar 10-04-2022
                 continue
             else:
-                print("!! Error: %s" % responses)
+                print(f"!! Error: {response}")
         except Exception as err:
-            print ("Error in interface selection --> "+str(err))
+            print(f"Error in interface selection {err}")
+            device.logout()
             sys.exit()
     
 def select_interface(device, nameif=""):
     my_interface = find_interfaces(device, nameif) # This will search for a nameif (if specified) or print a list of interfaces
     if nameif: # if we're searching for a nameif, return that interface
         return my_interface
-    num = int(nbinput("\nSelect the interface facing your SNMP server [1-{:<1}]: ".format(device.interface_counter), [str(x) for x in range(1,device.interface_counter+1)]))
-    #num -= 1 # -1 because 0 counting
-    return device.valid_interface[num-1]
+    num = int(nbinput(f"\nSelect the interface facing your SNMP server [1-{device.interface_counter}]: ", [str(x) for x in range(1,device.interface_counter+1)]))
+    return device.valid_interface[num-1] # Because Zero Counting
 
 def create_snmpserver(device, secConfig, host, interface, server_name):
-    url = "https://"+device.hostname+"/api/fdm/latest/object/snmphosts"
+    url = f"https://{device.hostname}/api/fdm/latest/object/snmphosts"
     payload={
                 "name": server_name,
                 "managerAddress": {
@@ -240,21 +248,22 @@ def create_snmpserver(device, secConfig, host, interface, server_name):
     device.post(url, payload)
 
 def get_networkHost_IP(device, object_id):
-    url="https://"+device.hostname+"/api/fdm/latest/object/networks/"+object_id
+    url = f"https://{device.hostname}/api/fdm/latest/object/networks/{object_id}"
     get_host = device.get(url)
     if get_host.status_code==200:
         return get_host.json()['value']
     else:
         print(json.loads(get_host.text))
+        device.logout()
         sys.exit()
 
 def delete_SNMP_config(device, networkObject_id, snmpHost_id):
-    print("\nDeleting snmpHost_id - " + snmpHost_id, end='')
-    url = "https://"+device.hostname+"/api/fdm/v6/object/snmphosts/"+snmpHost_id
+    print(f"\nDeleting snmpHost_id - {snmpHost_id}", end='')
+    url = f"https://{device.hostname}/api/fdm/v6/object/snmphosts/{snmpHost_id}"
     device.delete(url)
     
-    print("\nDeleting networkObject_id - " + networkObject_id, end='')
-    url="https://"+device.hostname+"/api/fdm/v6/object/networks/"+networkObject_id
+    print(f"\nDeleting networkObject_id - {networkObject_id}", end='')
+    url=f"https://{device.hostname}/api/fdm/v6/object/networks/{networkObject_id}"
     device.delete(url)
 
 def getSNMPv2_config(community_str):
@@ -302,20 +311,20 @@ def newSNMPconfig_menu(device):
         v3payload = getSNMPv3_payload(username)
     snmp_servername = nbinput('Enter Local SNMP Server object name: ')
     interface=select_interface(device) # Find the interface to listen on
-    ready = nbinput("Ready to create objects on %s. Continue (y\\n): " % device.hostname, ['y', 'n', 'Y', 'N'])
+    ready = nbinput(f"Ready to create objects on {device.hostname}. Continue (y\\n): ", ['y', 'n', 'Y', 'N'])
     if isinstance(ready, str):
         ready=ready.lower()
     match ready:
         case 'y': # Will need to figure out what version we're configuring here
             if snmp_version==3: # v3 config only
-                dprint ("v3user=create_snmpv3user(device, %s)" % v3payload) 
+                dprint(f"v3user=create_snmpv3user(device, {v3payload})") 
                 v3user=create_snmpv3user(device, v3payload) 
-                dprint ("secConfig=getSNMPv3_config(%s)" % v3user)
+                dprint(f"secConfig=getSNMPv3_config({v3user})")
                 secConfig=getSNMPv3_config(v3user)
             # This is for everyone now... 
-            dprint("hostobj = create_remotehost_obj(device, %s, %s)" % (remote_name, remote_ip))
+            dprint(f"remoteobj = create_remotehost_obj(device, {remote_name}, {remote_ip})")
             remoteobj = create_remotehost_obj(device, remote_name, remote_ip) #version, name, id and type
-            dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remoteobj, interface, snmp_servername))
+            dprint(f"create_snmpserver(device, {secConfig}, {remoteobj}, {interface}, {snmp_servername})")
             create_snmpserver(device, secConfig, remoteobj, interface, snmp_servername)
             print("\n\n Configuration Complete - Please visit FDM and Commit these changes!")
             return
@@ -329,7 +338,7 @@ def deleteSNMPconfig_menu(device):
         if config_count == 0 :
             print("\nNo configurations present to edit...")
             return
-        selection = int(nbinput("\nEnter line to delete, or 0 to exit [0-%s]: " % config_count, [str(x) for x in range(0,config_count+1)]))
+        selection = int(nbinput(f"\nEnter line to delete, or 0 to exit [0-{config_count}]: ", [str(x) for x in range(0,config_count+1)]))
         if selection != 0:
             delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
         else:
@@ -337,9 +346,9 @@ def deleteSNMPconfig_menu(device):
 
 def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast way to add SNMPv2 to all the things...
     import csv
-    format = ['HOSTNAME', 'USERNAME', 'PASSWORD', 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']
+    fields = ['HOSTNAME', 'USERNAME', 'PASSWORD', 'REMOTESERVER_NAME', 'REMOTESERVER_IP', 'NAMEIF', 'LOCALSERVER_NAME', 'SNMP_STRING']
     with open(filename, newline='') as file:
-        csv_file = csv.DictReader(file, fieldnames=format)
+        csv_file = csv.DictReader(file, fieldnames=fields)
         for line in csv_file:
             hostname=line['HOSTNAME'].strip()
             username=line['USERNAME'].strip()
@@ -350,29 +359,31 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
             localserver_name=line['LOCALSERVER_NAME'].strip()
             snmp_string=line['SNMP_STRING'].strip()
 
-            dprint(format)
-            dprint("%s, %s, ##########, %s, %s, %s, %s, %s" % (hostname, username, remoteserver_name, remoteserver_ip, nameif, localserver_name, snmp_string))
-            print("Logging into %s" % hostname)
+            dprint(fields)
+            dprint(f"{hostname}, {username}, ##########, {remoteserver_name}, {remoteserver_ip}, {nameif}, {localserver_name}, {snmp_string})")
+            print(f"Logging into {hostname}")
             device=FDM(hostname)
 
             if not device.do_auth(username, password):
-                print ("\nLogin error %s@%s\n" % (username, hostname))
+                print(f"\nLogin error {username}@{hostname}\n")
                 continue
 
             if SAVE_CREDS_TO_KEYRING:
                 keyring.set_password(KEYRING, hostname, password)
 
-            dprint ("host=create_remotehost_obj(device, %s, %s)" % (remoteserver_name, remoteserver_ip))
+            dprint(f"host=create_remotehost_obj(device, {remoteserver_name}, {remoteserver_ip})")
             remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
 
             interface = find_interfaces(device, nameif)
             if not interface['name']:
-                print("\nUnable to find interface %s on %s\n" % (nameif, hostname))
+                print(f"\nUnable to find interface {nameif} on {hostname}\n")
                 continue
 
             secConfig = getSNMPv2_config(snmp_string) 
-            dprint("create_snmpserver(device, %s, %s, %s, %s)" % (secConfig, remotehost_obj, interface, localserver_name))
+            dprint(f"create_snmpserver(device, {secConfig}, {remotehost_obj}, {interface}, {localserver_name})")
             create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
+            print(f"Configuration on {hostname} complete..\n\n")
+            device.logout()
     sys.exit("\nComplete - Exiting")
 
 ###################################################################################################################
@@ -380,19 +391,18 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
 
 def main():
     warnings.filterwarnings('ignore', message='Unverified HTTPS request')
-    VERSION = "1.3.0"
+    VERSION = "1.3.1"
     KEYRING="fdm-snmp"
     SAVE_CREDS_TO_KEYRING = True # Do we save all of our creds to the keyring by default?
     AUTO_KEYCHAIN = True # Automagicallu try the keychain if no password supplied
 
-
-    print (" **********************************************")
-    print (" *                                            *")
-    print (" * FDM SNMP Configuration Tool                *")
-    print (" *   version {:<32} *".format(VERSION))
-    print (" *                (c) Tony Mattke 2022-2023   *")
-    print (" *                                            *")
-    print (" **********************************************\n")
+    print(" **********************************************")
+    print(" *                                            *")
+    print(" * FDM SNMP Configuration Tool                *")
+    print(f" *   version {VERSION:<32} *")
+    print(" *                (c) Tony Mattke 2022-2023   *")
+    print(" *                                            *")
+    print(" **********************************************\n")
     
     parser = argparse.ArgumentParser(prog="python3 fdm-snmp.py",
                                      description="API Management of FDM SNMP Configurations")
@@ -427,7 +437,7 @@ def main():
         print("Pulling password from local keyring.")
         password=keyring.get_password(KEYRING, hostname)
         if not password:
-            print("Password for %s not found in keyring\n" % hostname)
+            print(f"Password for {hostname} not found in keyring\n")
             password = nbinput('Password: ', True)
     while not password:
         password = nbinput('Password: ', True)
@@ -455,7 +465,8 @@ def main():
             case '2':
                 deleteSNMPconfig_menu(device)
             case '0':
-                sys.exit("\nExiting...")
+                device.logout()
+                sys.exit(">Exiting.")
 
 ###################################################################################################################
 ###################################################################################################################
