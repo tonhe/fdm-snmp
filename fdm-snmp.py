@@ -475,18 +475,20 @@ def main():
         print()
         print(" 1. Add a new SNMP Configuration")
         print(" 2. Delete a current SNMP Configuration")
-        print(" 3. Commit changes to device.")
-        print(" 0. Exit")
+        print(" 9. Deploy / Commit changes and Exit")
+        print(" 0. Exit without Deploying Changes.")
         print()
-        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2','3'])
+        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2','9'])
 
         match choice:
             case '1':
                 newSNMPconfig_menu(device)
             case '2':
                 deleteSNMPconfig_menu(device)
-            case '3':
+            case '9':
                 device.commit_changes()
+                device.logout()
+                sys.exit(">Exiting.")
             case '0':
                 device.logout()
                 sys.exit(">Exiting.")
