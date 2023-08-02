@@ -407,6 +407,7 @@ def main():
     warnings.filterwarnings('ignore', message='Unverified HTTPS request')
     VERSION = "1.3.2"
     KEYRING="fdm-snmp"
+
     SAVE_CREDS_TO_KEYRING = True # Do we save all of our creds to the keyring by default?
     AUTO_KEYCHAIN = True # Automagicallu try the keychain if no password supplied
 
@@ -422,11 +423,11 @@ def main():
                                      description="API Management of FDM SNMP Configurations")
     parser.add_argument("host", help="FDM Managment IP/Hostname", default="", nargs="*")
     parser.add_argument("-u", "--user", dest="user", help="User ID for login (admin is default)", default="admin")
-    parser.add_argument("-k", "--keyring", dest="keyring", help="Pull password from local keyring (by hostname)", action="store_true")
+    parser.add_argument("-k", "--keyring", dest="keyring", help="Pull password from local keyring default)", action="store_true")
     parser.add_argument("-p", "--password", dest="change_password", help="Change keyring password via interactive login", action="store_true")
+    parser.add_argument("-f", "--file", dest="file", help="Import list of device and configs from file", default="")
     parser.add_argument("-d", dest="debug", help=argparse.SUPPRESS, action="store_true")
     parser.add_argument("-c", dest="commit", help=argparse.SUPPRESS, action="store_true") # TESTING
-    parser.add_argument("-f", dest="file", help=argparse.SUPPRESS, default="")
     args = parser.parse_args()
 
     username=args.user
