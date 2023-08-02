@@ -393,9 +393,9 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
 
             secConfig = getSNMPv2_config(snmp_string) 
             dprint(f"create_snmpserver(device, {secConfig}, {remotehost_obj}, {interface}, {localserver_name})")
-            print ("Creating SNMP Configuration Object")
+            print ("Creating SNMP Configuration Object.")
             create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
-            print(f"Configuration on {hostname} complete.. ")
+            print(f"Configuration on {hostname} complete!")
             device.commit_changes()
             device.logout()
     sys.exit("\nComplete - Exiting")
