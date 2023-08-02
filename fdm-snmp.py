@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import sys
-import os
 import json
 import getpass
 import keyring
@@ -85,6 +84,13 @@ class FDM:
             sys.exit()
         return
 
+    def commit_changes(self):
+        url=f'https://{self.hostname}/api/fdm/latest/operational/deploy'
+        nada = {}
+        response=self.post(url, nada)
+        if response['state'] == 'QUEUED':
+            print("Change Deployement Queued.")
+
     def logout(self): # Revoke our own access token
         headers = { 'Content-Type': 'application/json',
                     'Accept': 'application/json' }
@@ -95,7 +101,7 @@ class FDM:
             response = requests.post(url, headers=headers, data=payload, verify=False)
             dprint(f"status code {response.status_code}")
             if response.status_code == 200: 
-                print(f"\nLogged out of {self.hostname}.")
+                print(f"Logged out of {self.hostname}.")
         except Exception as e:
             print(f"!! Logout Error - {e}")
 
@@ -265,6 +271,7 @@ def delete_SNMP_config(device, networkObject_id, snmpHost_id):
     print(f"\nDeleting networkObject_id - {networkObject_id}", end='')
     url=f"https://{device.hostname}/api/fdm/v6/object/networks/{networkObject_id}"
     device.delete(url)
+    print()
 
 def getSNMPv2_config(community_str):
     secConfig = {
@@ -326,7 +333,8 @@ def newSNMPconfig_menu(device):
             remoteobj = create_remotehost_obj(device, remote_name, remote_ip) #version, name, id and type
             dprint(f"create_snmpserver(device, {secConfig}, {remoteobj}, {interface}, {snmp_servername})")
             create_snmpserver(device, secConfig, remoteobj, interface, snmp_servername)
-            print("\n\n Configuration Complete - Please visit FDM and Commit these changes!")
+            #device.commit_changes()
+            print("\n\n Configuration Complete - Make sure to Commit these changes on main menu!")
             return
         case 'n':
             return
@@ -341,6 +349,8 @@ def deleteSNMPconfig_menu(device):
         selection = int(nbinput(f"\nEnter line to delete, or 0 to exit [0-{config_count}]: ", [str(x) for x in range(0,config_count+1)]))
         if selection != 0:
             delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
+            #device.commit_changes()
+            print("\n\n Configuration Complete - Make sure to Commit these changes on main menu!")
         else:
             return
 
@@ -361,7 +371,7 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
 
             dprint(fields)
             dprint(f"{hostname}, {username}, ##########, {remoteserver_name}, {remoteserver_ip}, {nameif}, {localserver_name}, {snmp_string})")
-            print(f"Logging into {hostname}")
+            print(f"\nLogging into {hostname}")
             device=FDM(hostname)
 
             if not device.do_auth(username, password):
@@ -372,8 +382,10 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
                 keyring.set_password(KEYRING, hostname, password)
 
             dprint(f"host=create_remotehost_obj(device, {remoteserver_name}, {remoteserver_ip})")
+            print ("Creating Remote SNMP Server Object.")
             remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
 
+            print ("Locating interface.")
             interface = find_interfaces(device, nameif)
             if not interface['name']:
                 print(f"\nUnable to find interface {nameif} on {hostname}\n")
@@ -381,8 +393,10 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
 
             secConfig = getSNMPv2_config(snmp_string) 
             dprint(f"create_snmpserver(device, {secConfig}, {remotehost_obj}, {interface}, {localserver_name})")
+            print ("Creating SNMP Configuration Object")
             create_snmpserver(device, secConfig, remotehost_obj, interface, localserver_name)
-            print(f"Configuration on {hostname} complete..\n\n")
+            print(f"Configuration on {hostname} complete.. ")
+            device.commit_changes()
             device.logout()
     sys.exit("\nComplete - Exiting")
 
@@ -411,12 +425,14 @@ def main():
     parser.add_argument("-k", "--keyring", dest="keyring", help="Pull password from local keyring (by hostname)", action="store_true")
     parser.add_argument("-p", "--password", dest="change_password", help="Change keyring password via interactive login", action="store_true")
     parser.add_argument("-d", dest="debug", help=argparse.SUPPRESS, action="store_true")
+    parser.add_argument("-c", dest="commit", help=argparse.SUPPRESS, action="store_true") # TESTING
     parser.add_argument("-f", dest="file", help=argparse.SUPPRESS, default="")
     args = parser.parse_args()
 
     username=args.user
     hostname=""
     password=""
+
 
     if args.debug:
         global DEBUG 
@@ -449,21 +465,27 @@ def main():
     if SAVE_CREDS_TO_KEYRING:
         keyring.set_password(KEYRING, hostname, password)
 
+    if args.commit: #TESTING
+        device.commit_changes()
+        sys.exit()
+
     while True:
         printSNMPconfigs(device) # Print the list of SNMP Configurations
         print()
         print(" 1. Add a new SNMP Configuration")
         print(" 2. Delete a current SNMP Configuration")
+        print(" 3. Commit changes to device.")
         print(" 0. Exit")
         print()
-        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2'])
+        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2','3'])
 
         match choice:
             case '1':
                 newSNMPconfig_menu(device)
-                #new_SNMP_config(device)
             case '2':
                 deleteSNMPconfig_menu(device)
+            case '3':
+                device.commit_changes()
             case '0':
                 device.logout()
                 sys.exit(">Exiting.")
