@@ -405,7 +405,7 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
 
 def main():
     warnings.filterwarnings('ignore', message='Unverified HTTPS request')
-    VERSION = "1.3.1"
+    VERSION = "1.3.2"
     KEYRING="fdm-snmp"
     SAVE_CREDS_TO_KEYRING = True # Do we save all of our creds to the keyring by default?
     AUTO_KEYCHAIN = True # Automagicallu try the keychain if no password supplied
