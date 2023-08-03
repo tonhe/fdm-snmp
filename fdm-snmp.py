@@ -146,13 +146,11 @@ def printSNMPconfigs(device):
             print("\nNo SNMP Configurations Present")
             return
         print(f"\n>>> SNMP Configurations on {device.hostname} >>>")
-        #print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format("#","snmpHost", "nameif", "interface", "networkObject", "ipAddress"))
         print(f"{'#':<5} {'snmpHost':<20} {'nameif':<10} {'interface':<15} {'networkObject':<20} {'ipAddress':<12}")
         line = 0
         for config in device.SNMPconfigs:
             line += 1
             serverIP=get_networkHost_IP(device, config['managerAddress']['id'])
-            #print("{:<5} {:<20} {:<10} {:<15} {:<20} {:<12}".format(line,config['name'], config['interface']['name'], config['interface']['hardwareName'], config['managerAddress']['name'], serverIP))
             print(f"{line:<5} {config['name']:<20} {config['interface']['name']:<10} {config['interface']['hardwareName']:<15} {config['managerAddress']['name']:<20} {serverIP:<12}")
  
 def create_remotehost_obj(device, name, ip):
@@ -177,7 +175,6 @@ def print_interface(device, iface):
         ipAddr = "n/a"
     else:
        ipAddr = iface['ipv4']['ipAddress']['ipAddress']
-    #print("{:<5} {:<18} {:<20} {:<20} {:<40}".format(device.interface_counter+1, iface['name'], iface['hardwareName'], ipAddr, iface['id']))
     print(f"{device.interface_counter+1:<5} {iface['name']:<18} {iface['hardwareName']:<20} {ipAddr:<20} {iface['id']:<40}")
 
 def find_interfaces (device, nameif=""): # Populates valid interfaces, if nameif is sent, we return a matching interface
@@ -307,13 +304,12 @@ def getSNMPv3_payload(username):
 
 def newSNMPconfig_menu(device):
     snmp_version = int(nbinput("\nSelect SNMP version to configure...\n\n 2. SNMPv2\n 3. SNMPv3\n [2-3]: ", ['2','3']))
-    #snmp_version=2
     remote_name = nbinput("\nEnter the object name for the remote SNMP Server: ")
     remote_ip = nbinput("Enter the IP for the remote SNMP Server: ")
     if snmp_version == 2: #SNMPv2
         community_str = nbinput("Enter the SNMPv2 community string: ")
         secConfig = getSNMPv2_config(community_str)
-    elif snmp_version == 3:
+    elif snmp_version == 3: #SNMPv3
         username = nbinput("Enter the SNMPv3 username: ")
         v3payload = getSNMPv3_payload(username)
     snmp_servername = nbinput('Enter Local SNMP Server object name: ')
@@ -322,7 +318,7 @@ def newSNMPconfig_menu(device):
     if isinstance(ready, str):
         ready=ready.lower()
     match ready:
-        case 'y': # Will need to figure out what version we're configuring here
+        case 'y': 
             if snmp_version==3: # v3 config only
                 dprint(f"v3user=create_snmpv3user(device, {v3payload})") 
                 v3user=create_snmpv3user(device, v3payload) 
@@ -333,7 +329,6 @@ def newSNMPconfig_menu(device):
             remoteobj = create_remotehost_obj(device, remote_name, remote_ip) #version, name, id and type
             dprint(f"create_snmpserver(device, {secConfig}, {remoteobj}, {interface}, {snmp_servername})")
             create_snmpserver(device, secConfig, remoteobj, interface, snmp_servername)
-            #device.commit_changes()
             print("\n\n Configuration Complete - Make sure to Commit these changes on main menu!")
             return
         case 'n':
@@ -349,7 +344,6 @@ def deleteSNMPconfig_menu(device):
         selection = int(nbinput(f"\nEnter line to delete, or 0 to exit [0-{config_count}]: ", [str(x) for x in range(0,config_count+1)]))
         if selection != 0:
             delete_SNMP_config(device, device.SNMPconfigs[selection-1]['managerAddress']['id'],device.SNMPconfigs[selection-1]['id'])
-            #device.commit_changes()
             print("\n\n Configuration Complete - Make sure to Commit these changes on main menu!")
         else:
             return
@@ -368,29 +362,23 @@ def work_from_file(filename, KEYRING, SAVE_CREDS_TO_KEYRING): # an Ugly and Fast
             nameif=line['NAMEIF'].strip()
             localserver_name=line['LOCALSERVER_NAME'].strip()
             snmp_string=line['SNMP_STRING'].strip()
-
             dprint(fields)
             dprint(f"{hostname}, {username}, ##########, {remoteserver_name}, {remoteserver_ip}, {nameif}, {localserver_name}, {snmp_string})")
             print(f"\nLogging into {hostname}")
             device=FDM(hostname)
-
             if not device.do_auth(username, password):
                 print(f"\nLogin error {username}@{hostname}\n")
                 continue
-
             if SAVE_CREDS_TO_KEYRING:
                 keyring.set_password(KEYRING, hostname, password)
-
             dprint(f"host=create_remotehost_obj(device, {remoteserver_name}, {remoteserver_ip})")
             print ("Creating Remote SNMP Server Object.")
             remotehost_obj=create_remotehost_obj(device, remoteserver_name, remoteserver_ip) #version, name, id and type
-
             print ("Locating interface.")
             interface = find_interfaces(device, nameif)
             if not interface['name']:
                 print(f"\nUnable to find interface {nameif} on {hostname}\n")
                 continue
-
             secConfig = getSNMPv2_config(snmp_string) 
             dprint(f"create_snmpserver(device, {secConfig}, {remotehost_obj}, {interface}, {localserver_name})")
             print ("Creating SNMP Configuration Object.")
@@ -418,7 +406,6 @@ def main():
     print(" *                (c) Tony Mattke 2022-2023   *")
     print(" *                                            *")
     print(" **********************************************\n")
-    
     parser = argparse.ArgumentParser(prog="python3 fdm-snmp.py",
                                      description="API Management of FDM SNMP Configurations")
     parser.add_argument("host", help="FDM Managment IP/Hostname", default="", nargs="*")
@@ -433,7 +420,6 @@ def main():
     username=args.user
     hostname=""
     password=""
-
 
     if args.debug:
         global DEBUG 
@@ -465,12 +451,11 @@ def main():
 
     if SAVE_CREDS_TO_KEYRING:
         keyring.set_password(KEYRING, hostname, password)
-
     if args.commit: #TESTING
         device.commit_changes()
         sys.exit()
 
-    while True:
+    while True: # Main Loop
         printSNMPconfigs(device) # Print the list of SNMP Configurations
         print()
         print(" 1. Add a new SNMP Configuration")
@@ -478,7 +463,7 @@ def main():
         print(" 9. Deploy / Commit changes and Exit")
         print(" 0. Exit without Deploying Changes.")
         print()
-        choice = nbinput("Enter your choice [0-2]: ", ['0','1','2','9'])
+        choice = nbinput("Enter your choice: ", ['0','1','2','9'])
 
         match choice:
             case '1':
